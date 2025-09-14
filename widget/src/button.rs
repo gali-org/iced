@@ -25,7 +25,6 @@ use crate::core::theme::palette;
 use crate::core::touch;
 use crate::core::widget::Operation;
 use crate::core::widget::tree::{self, Tree};
-use crate::core::window;
 use crate::core::{
     Background, Clipboard, Color, Element, Event, Layout, Length, Padding,
     Rectangle, Shadow, Shell, Size, Theme, Vector, Widget,
@@ -81,7 +80,6 @@ where
     padding: Padding,
     clip: bool,
     class: Theme::Class<'a>,
-    status: Option<Status>,
 }
 
 enum OnPress<'a, Message> {
@@ -118,7 +116,6 @@ where
             padding: DEFAULT_PADDING,
             clip: false,
             class: Theme::default(),
-            status: None,
         }
     }
 
@@ -202,6 +199,7 @@ where
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 struct State {
     is_pressed: bool,
+    status: Status,
 }
 
 impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
@@ -216,7 +214,16 @@ where
     }
 
     fn state(&self) -> tree::State {
-        tree::State::new(State::default())
+        let status = if self.on_press.is_some() {
+            Status::Active
+        } else {
+            Status::Disabled
+        };
+
+        tree::State::new(State {
+            status,
+            ..Default::default()
+        })
     }
 
     fn children(&self) -> Vec<Tree> {
@@ -339,10 +346,10 @@ where
             _ => {}
         }
 
+        let state = tree.state.downcast_mut::<State>();
         let current_status = if self.on_press.is_none() {
             Status::Disabled
         } else if cursor.is_over(layout.bounds()) {
-            let state = tree.state.downcast_ref::<State>();
 
             if state.is_pressed {
                 Status::Pressed
@@ -352,10 +359,8 @@ where
         } else {
             Status::Active
         };
-
-        if let Event::Window(window::Event::RedrawRequested(_now)) = event {
-            self.status = Some(current_status);
-        } else if self.status.is_some_and(|status| status != current_status) {
+        if state.status != current_status {
+            state.status = current_status;
             shell.request_redraw();
         }
     }
@@ -373,7 +378,7 @@ where
         let bounds = layout.bounds();
         let content_layout = layout.children().next().unwrap();
         let style =
-            theme.style(&self.class, self.status.unwrap_or(Status::Disabled));
+            theme.style(&self.class, tree.state.downcast_ref::<State>().status);
 
         if style.background.is_some()
             || style.border.width > 0.0
@@ -467,9 +472,10 @@ pub(crate) const DEFAULT_PADDING: Padding = Padding {
 };
 
 /// The possible status of a [`Button`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Status {
     /// The [`Button`] can be pressed.
+    #[default]
     Active,
     /// The [`Button`] can be pressed and it is being hovered.
     Hovered,
